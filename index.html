@@ -1257,686 +1257,452 @@ footer {
     </div>
 
     <script>
-        // Configuration Management
-        class ConfigManager {
-            constructor() {
-                this.supabase = null;
-                this.isConfigured = false;
-            }
+    // Configuration - YOU SET THESE ONCE
+const SUPABASE_CONFIG = {
+    url: 'https://vkwunhsmizjfbqbkqqij.supabase.co',  // YOU change this
+    key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZrd3VuaHNtaXpqZmJxYmtxcWlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkzMDU5ODQsImV4cCI6MjA3NDg4MTk4NH0.8w4yHVkymj7YasD4vpN6fkEH509jWUa8othqljidxso
+'                 // YOU change this
+};
 
-            init() {
-                this.loadConfig();
-                if (!this.isConfigured) {
-                    this.showConfigModal();
-                } else {
-                    this.initializeSupabase();
-                }
-            }
+// User Authentication System
+class AuthSystem {
+    constructor() {
+        this.supabase = null;
+        this.currentUser = null;
+        this.isAdmin = false;
+        this.init();
+    }
 
-            loadConfig() {
-                const savedConfig = localStorage.getItem('bddailytopup_config');
-                if (savedConfig) {
-                    const config = JSON.parse(savedConfig);
-                    if (config.supabaseUrl && config.supabaseKey) {
-                        this.isConfigured = true;
-                        this.supabaseUrl = config.supabaseUrl;
-                        this.supabaseKey = config.supabaseKey;
-                    }
-                }
-            }
-
-            saveConfig(url, key) {
-                const config = {
-                    supabaseUrl: url,
-                    supabaseKey: key
-                };
-                localStorage.setItem('bddailytopup_config', JSON.stringify(config));
-                this.supabaseUrl = url;
-                this.supabaseKey = key;
-                this.isConfigured = true;
-                this.initializeSupabase();
-                this.hideConfigModal();
-                showNotification('Configuration saved successfully!', 'success');
-            }
-
-            showConfigModal() {
-                document.getElementById('configModal').style.display = 'flex';
-            }
-
-            hideConfigModal() {
-                document.getElementById('configModal').style.display = 'none';
-            }
-
-            initializeSupabase() {
-                if (this.supabaseUrl && this.supabaseKey) {
-                    this.supabase = window.supabase.createClient(this.supabaseUrl, this.supabaseKey);
-                    console.log('Supabase initialized successfully');
-                }
-            }
-
-            getSupabase() {
-                if (!this.supabase) {
-                    throw new Error('Supabase not configured. Please set up your configuration first.');
-                }
-                return this.supabase;
-            }
+    async init() {
+        // Initialize Supabase with YOUR keys
+        this.supabase = window.supabase.createClient(
+            SUPABASE_CONFIG.url, 
+            SUPABASE_CONFIG.key
+        );
+        
+        // Check if user is logged in
+        const { data: { session } } = await this.supabase.auth.getSession();
+        if (session) {
+            await this.loadUserProfile(session.user.id);
         }
-
-        // User Authentication System
-        class AuthSystem {
-            constructor(configManager) {
-                this.configManager = configManager;
+        this.updateUI();
+        
+        // Listen for auth changes
+        this.supabase.auth.onAuthStateChange(async (event, session) => {
+            if (session) {
+                await this.loadUserProfile(session.user.id);
+            } else {
                 this.currentUser = null;
                 this.isAdmin = false;
             }
+            this.updateUI();
+        });
+    }
 
-            async init() {
-                if (!this.configManager.isConfigured) {
-                    return;
-                }
+    async loadUserProfile(userId) {
+        const { data: profile, error } = await this.supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .single();
 
-                const supabase = this.configManager.getSupabase();
-                
-                // Check if user is logged in
-                const { data: { session } } = await supabase.auth.getSession();
-                if (session) {
-                    await this.loadUserProfile(session.user.id);
-                }
-                this.updateUI();
-                
-                // Listen for auth changes
-                supabase.auth.onAuthStateChange(async (event, session) => {
-                    if (session) {
-                        await this.loadUserProfile(session.user.id);
-                    } else {
-                        this.currentUser = null;
-                        this.isAdmin = false;
-                    }
-                    this.updateUI();
-                });
-            }
+        if (profile && !error) {
+            this.currentUser = {
+                id: profile.id,
+                email: profile.email,
+                name: profile.full_name,
+                phone: profile.phone,
+                isAdmin: profile.is_admin
+            };
+            this.isAdmin = profile.is_admin;
+        }
+    }
 
-            async loadUserProfile(userId) {
-                const supabase = this.configManager.getSupabase();
-                const { data: profile, error } = await supabase
-                    .from('profiles')
-                    .select('*')
-                    .eq('id', userId)
-                    .single();
+    async register(userData) {
+        try {
+            const { data: authData, error: authError } = await this.supabase.auth.signUp({
+                email: userData.email,
+                password: userData.password,
+            });
 
-                if (profile && !error) {
-                    this.currentUser = {
-                        id: profile.id,
-                        email: profile.email,
-                        name: profile.full_name,
-                        phone: profile.phone,
-                        isAdmin: profile.is_admin
-                    };
-                    this.isAdmin = profile.is_admin;
-                }
-            }
+            if (authError) throw authError;
 
-            async register(userData) {
-                try {
-                    const supabase = this.configManager.getSupabase();
-                    const { data: authData, error: authError } = await supabase.auth.signUp({
+            // Create user profile
+            const { error: profileError } = await this.supabase
+                .from('profiles')
+                .insert([
+                    {
+                        id: authData.user.id,
                         email: userData.email,
-                        password: userData.password,
-                    });
-
-                    if (authError) throw authError;
-
-                    // Create user profile
-                    const { error: profileError } = await supabase
-                        .from('profiles')
-                        .insert([
-                            {
-                                id: authData.user.id,
-                                email: userData.email,
-                                full_name: userData.name,
-                                phone: userData.phone,
-                                is_admin: false
-                            }
-                        ]);
-
-                    if (profileError) throw profileError;
-
-                    await this.loadUserProfile(authData.user.id);
-                    this.updateUI();
-                    return { success: true };
-
-                } catch (error) {
-                    return { success: false, error: error.message };
-                }
-            }
-
-            async login(email, password) {
-                try {
-                    const supabase = this.configManager.getSupabase();
-                    const { data, error } = await supabase.auth.signInWithPassword({
-                        email: email,
-                        password: password,
-                    });
-
-                    if (error) throw error;
-
-                    await this.loadUserProfile(data.user.id);
-                    this.updateUI();
-                    return { success: true };
-
-                } catch (error) {
-                    return { success: false, error: error.message };
-                }
-            }
-
-            async logout() {
-                const supabase = this.configManager.getSupabase();
-                await supabase.auth.signOut();
-                this.currentUser = null;
-                this.isAdmin = false;
-                this.updateUI();
-            }
-
-            updateUI() {
-                const loginBtn = document.getElementById('loginBtn');
-                const registerBtn = document.getElementById('registerBtn');
-                const logoutBtn = document.getElementById('logoutBtn');
-                const userInfo = document.querySelector('.user-info');
-                const userName = document.getElementById('userName');
-                const userAvatar = document.getElementById('userAvatar');
-                const navAdmin = document.querySelector('.nav-admin');
-                const mainContent = document.getElementById('mainContent');
-                const dashboard = document.getElementById('dashboard');
-                const adminPanel = document.getElementById('adminPanel');
-
-                if (this.currentUser) {
-                    loginBtn.style.display = 'none';
-                    registerBtn.style.display = 'none';
-                    logoutBtn.style.display = 'block';
-                    userInfo.style.display = 'flex';
-                    userName.textContent = this.currentUser.name;
-                    userAvatar.textContent = this.currentUser.name.charAt(0).toUpperCase();
-
-                    if (this.isAdmin) {
-                        navAdmin.style.display = 'block';
+                        full_name: userData.name,
+                        phone: userData.phone,
+                        is_admin: false
                     }
+                ]);
 
-                    // Show dashboard instead of main content
-                    mainContent.style.display = 'none';
-                    dashboard.style.display = 'block';
-                    
-                    if (this.isAdmin) {
-                        adminPanel.style.display = 'block';
-                        this.loadAdminData();
-                    } else {
-                        adminPanel.style.display = 'none';
-                        this.loadUserData();
-                    }
-                } else {
-                    loginBtn.style.display = 'block';
-                    registerBtn.style.display = 'block';
-                    logoutBtn.style.display = 'none';
-                    userInfo.style.display = 'none';
-                    navAdmin.style.display = 'none';
-                    
-                    mainContent.style.display = 'block';
-                    dashboard.style.display = 'none';
-                    adminPanel.style.display = 'none';
-                }
-            }
+            if (profileError) throw profileError;
 
-            async loadUserData() {
-                if (!this.configManager.isConfigured) return;
-                
-                const ordersLoading = document.getElementById('ordersLoading');
-                ordersLoading.style.display = 'block';
+            await this.loadUserProfile(authData.user.id);
+            this.updateUI();
+            return { success: true };
 
-                try {
-                    const supabase = this.configManager.getSupabase();
-                    const { data: orders, error } = await supabase
-                        .from('topup_requests')
-                        .select('*')
-                        .eq('user_id', this.currentUser.id)
-                        .order('created_at', { ascending: false });
-
-                    if (error) throw error;
-
-                    document.getElementById('totalOrders').textContent = orders?.length || 0;
-                    document.getElementById('completedOrders').textContent = orders?.filter(o => o.status === 'completed').length || 0;
-                    document.getElementById('pendingOrders').textContent = orders?.filter(o => o.status === 'pending').length || 0;
-
-                    const ordersList = document.getElementById('ordersList');
-                    if (orders && orders.length > 0) {
-                        ordersList.innerHTML = orders.map(order => `
-                            <div class="order-item">
-                                <div>
-                                    <strong>${order.package_name}</strong>
-                                    <div>$${order.amount} • ${new Date(order.created_at).toLocaleDateString()}</div>
-                                </div>
-                                <span class="order-status status-${order.status}">${order.status}</span>
-                            </div>
-                        `).join('');
-                    } else {
-                        ordersList.innerHTML = '<p>No orders found.</p>';
-                    }
-                } catch (error) {
-                    console.error('Error loading user data:', error);
-                    showNotification('Error loading orders', 'error');
-                } finally {
-                    ordersLoading.style.display = 'none';
-                }
-            }
-
-            async loadAdminData() {
-                if (!this.configManager.isConfigured) return;
-                
-                const adminLoading = document.getElementById('adminLoading');
-                adminLoading.style.display = 'block';
-
-                try {
-                    const supabase = this.configManager.getSupabase();
-                    const { data: requests, error } = await supabase
-                        .from('topup_requests')
-                        .select(`
-                            *,
-                            profiles:user_id (email, full_name)
-                        `)
-                        .order('created_at', { ascending: false });
-
-                    if (error) throw error;
-
-                    const table = document.getElementById('requestsTable');
-                    if (requests && requests.length > 0) {
-                        table.innerHTML = requests.map(req => `
-                            <tr>
-                                <td>#${req.id}</td>
-                                <td>${req.profiles?.email || 'N/A'}</td>
-                                <td>${req.package_name}</td>
-                                <td>$${req.amount}</td>
-                                <td>${req.payment_method}</td>
-                                <td>${req.player_id}</td>
-                                <td><span class="order-status status-${req.status}">${req.status}</span></td>
-                                <td>
-                                    <button class="action-btn btn-approve" data-id="${req.id}">Approve</button>
-                                    <button class="action-btn btn-reject" data-id="${req.id}">Reject</button>
-                                </td>
-                            </tr>
-                        `).join('');
-
-                        // Add event listeners to action buttons
-                        document.querySelectorAll('.btn-approve').forEach(btn => {
-                            btn.addEventListener('click', async (e) => {
-                                await this.updateOrderStatus(e.target.dataset.id, 'completed');
-                            });
-                        });
-
-                        document.querySelectorAll('.btn-reject').forEach(btn => {
-                            btn.addEventListener('click', async (e) => {
-                                await this.updateOrderStatus(e.target.dataset.id, 'failed');
-                            });
-                        });
-                    } else {
-                        table.innerHTML = '<tr><td colspan="8" style="text-align: center;">No requests found</td></tr>';
-                    }
-                } catch (error) {
-                    console.error('Error loading admin data:', error);
-                    showNotification('Error loading requests', 'error');
-                } finally {
-                    adminLoading.style.display = 'none';
-                }
-            }
-
-            async updateOrderStatus(orderId, status) {
-                try {
-                    const supabase = this.configManager.getSupabase();
-                    const { error } = await supabase
-                        .from('topup_requests')
-                        .update({ 
-                            status: status,
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq('id', orderId);
-
-                    if (error) throw error;
-
-                    showNotification(`Order ${status} successfully`, 'success');
-                    this.loadAdminData(); // Refresh the table
-                } catch (error) {
-                    console.error('Error updating order:', error);
-                    showNotification('Error updating order', 'error');
-                }
-            }
+        } catch (error) {
+            return { success: false, error: error.message };
         }
+    }
 
-        // Initialize the application
-        document.addEventListener('DOMContentLoaded', function() {
-            const configManager = new ConfigManager();
-            const authSystem = new AuthSystem(configManager);
-
-            // Initialize configuration
-            configManager.init();
-
-            // Save configuration
-            document.getElementById('saveConfig').addEventListener('click', () => {
-                const url = document.getElementById('supabaseUrl').value;
-                const key = document.getElementById('supabaseKey').value;
-                
-                if (!url || !key) {
-                    showNotification('Please enter both URL and Key', 'error');
-                    return;
-                }
-
-                configManager.saveConfig(url, key);
-                authSystem.init(); // Initialize auth system after config is saved
+    async login(email, password) {
+        try {
+            const { data, error } = await this.supabase.auth.signInWithPassword({
+                email: email,
+                password: password,
             });
 
-            // Load packages
-            loadPackages();
+            if (error) throw error;
 
-            // Mobile menu functionality
-            const mobileMenuBtn = document.getElementById('mobileMenuBtn');
-            const mobileNav = document.getElementById('mobileNav');
-            const closeMobileNav = document.getElementById('closeMobileNav');
+            await this.loadUserProfile(data.user.id);
+            this.updateUI();
+            return { success: true };
 
-            mobileMenuBtn.addEventListener('click', () => {
-                mobileNav.classList.add('active');
-            });
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
 
-            closeMobileNav.addEventListener('click', () => {
-                mobileNav.classList.remove('active');
-            });
+    async logout() {
+        await this.supabase.auth.signOut();
+        this.currentUser = null;
+        this.isAdmin = false;
+        this.updateUI();
+    }
 
-            // Auth modal functionality
-            const authModal = document.getElementById('authModal');
-            const authTabs = document.querySelectorAll('.auth-tab');
-            const authForms = document.querySelectorAll('.auth-form');
-            const loginBtn = document.getElementById('loginBtn');
-            const registerBtn = document.getElementById('registerBtn');
-            const logoutBtn = document.getElementById('logoutBtn');
-            const loginForm = document.getElementById('loginForm');
-            const registerForm = document.getElementById('registerForm');
+    updateUI() {
+        const loginBtn = document.getElementById('loginBtn');
+        const registerBtn = document.getElementById('registerBtn');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const userInfo = document.querySelector('.user-info');
+        const userName = document.getElementById('userName');
+        const userAvatar = document.getElementById('userAvatar');
+        const navAdmin = document.querySelector('.nav-admin');
+        const mainContent = document.getElementById('mainContent');
+        const dashboard = document.getElementById('dashboard');
+        const adminPanel = document.getElementById('adminPanel');
 
-            // Auth tab switching
-            authTabs.forEach(tab => {
-                tab.addEventListener('click', () => {
-                    const tabName = tab.getAttribute('data-tab');
-                    
-                    authTabs.forEach(t => t.classList.remove('active'));
-                    authForms.forEach(f => f.classList.remove('active'));
-                    
-                    tab.classList.add('active');
-                    document.getElementById(tabName + 'Form').classList.add('active');
-                });
-            });
+        if (this.currentUser) {
+            loginBtn.style.display = 'none';
+            registerBtn.style.display = 'none';
+            logoutBtn.style.display = 'block';
+            userInfo.style.display = 'flex';
+            userName.textContent = this.currentUser.name;
+            userAvatar.textContent = this.currentUser.name.charAt(0).toUpperCase();
 
-            // Open auth modal
-            loginBtn.addEventListener('click', () => {
-                if (!configManager.isConfigured) {
-                    showNotification('Please configure Supabase first', 'error');
-                    configManager.showConfigModal();
-                    return;
-                }
-                authModal.style.display = 'flex';
-                document.querySelector('.auth-tab[data-tab="login"]').click();
-                mobileNav.classList.remove('active');
-            });
-
-            registerBtn.addEventListener('click', () => {
-                if (!configManager.isConfigured) {
-                    showNotification('Please configure Supabase first', 'error');
-                    configManager.showConfigModal();
-                    return;
-                }
-                authModal.style.display = 'flex';
-                document.querySelector('.auth-tab[data-tab="register"]').click();
-                mobileNav.classList.remove('active');
-            });
-
-            // Close modal
-            document.querySelectorAll('.close-modal').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    authModal.style.display = 'none';
-                });
-            });
-
-            // Form submissions
-            loginForm.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const email = document.getElementById('loginEmail').value;
-                const password = document.getElementById('loginPassword').value;
-                
-                const result = await authSystem.login(email, password);
-                if (result.success) {
-                    authModal.style.display = 'none';
-                    showNotification('Login successful!', 'success');
-                } else {
-                    showNotification(result.error, 'error');
-                }
-            });
-
-            registerForm.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const userData = {
-                    name: document.getElementById('registerName').value,
-                    email: document.getElementById('registerEmail').value,
-                    password: document.getElementById('registerPassword').value,
-                    phone: document.getElementById('registerPhone').value
-                };
-                
-                const result = await authSystem.register(userData);
-                if (result.success) {
-                    authModal.style.display = 'none';
-                    showNotification('Registration successful!', 'success');
-                } else {
-                    showNotification(result.error, 'error');
-                }
-            });
-
-            // Logout
-            logoutBtn.addEventListener('click', () => {
-                authSystem.logout();
-                showNotification('Logged out successfully', 'success');
-            });
-
-            // Navigation
-            document.querySelectorAll('.nav-home').forEach(link => {
-                link.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    document.getElementById('mainContent').style.display = 'block';
-                    document.getElementById('dashboard').style.display = 'none';
-                    document.getElementById('adminPanel').style.display = 'none';
-                    mobileNav.classList.remove('active');
-                });
-            });
-
-            document.querySelectorAll('.nav-dashboard').forEach(link => {
-                link.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    if (authSystem.currentUser) {
-                        document.getElementById('mainContent').style.display = 'none';
-                        document.getElementById('dashboard').style.display = 'block';
-                        document.getElementById('adminPanel').style.display = authSystem.isAdmin ? 'block' : 'none';
-                    }
-                    mobileNav.classList.remove('active');
-                });
-            });
-
-            document.querySelectorAll('.nav-admin').forEach(link => {
-                link.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    if (authSystem.isAdmin) {
-                        document.getElementById('mainContent').style.display = 'none';
-                        document.getElementById('dashboard').style.display = 'none';
-                        document.getElementById('adminPanel').style.display = 'block';
-                    }
-                    mobileNav.classList.remove('active');
-                });
-            });
-
-            // Refresh admin data
-            document.getElementById('refreshRequests').addEventListener('click', () => {
-                if (authSystem.isAdmin) {
-                    authSystem.loadAdminData();
-                }
-            });
-
-            // Notification system
-            function showNotification(message, type) {
-                const notification = document.createElement('div');
-                notification.style.cssText = `
-                    position: fixed;
-                    top: 20px;
-                    right: 20px;
-                    padding: 15px 20px;
-                    border-radius: 4px;
-                    color: white;
-                    z-index: 10000;
-                    font-weight: 500;
-                    transition: all 0.3s ease;
-                    background-color: ${type === 'success' ? '#2ecc71' : '#e74c3c'};
-                `;
-                notification.textContent = message;
-                
-                document.body.appendChild(notification);
-                
-                setTimeout(() => {
-                    notification.remove();
-                }, 3000);
+            if (this.isAdmin) {
+                navAdmin.style.display = 'block';
             }
 
-            // Load packages function
-            async function loadPackages() {
-                const packagesGrid = document.querySelector('.packages-grid');
-                const packages = [
-                    { id: 1, name: 'Starter Pack', diamonds: 100, price: 0.99 },
-                    { id: 2, name: 'Basic Pack', diamonds: 310, price: 2.99 },
-                    { id: 3, name: 'Popular Pack', diamonds: 520, price: 4.99 },
-                    { id: 4, name: 'Elite Pack', diamonds: 1060, price: 9.99 },
-                    { id: 5, name: 'Royal Pack', diamonds: 2180, price: 19.99 },
-                    { id: 6, name: 'Legendary Pack', diamonds: 5600, price: 49.99 }
-                ];
+            mainContent.style.display = 'none';
+            dashboard.style.display = 'block';
+            
+            if (this.isAdmin) {
+                adminPanel.style.display = 'block';
+                this.loadAdminData();
+            } else {
+                adminPanel.style.display = 'none';
+                this.loadUserData();
+            }
+        } else {
+            loginBtn.style.display = 'block';
+            registerBtn.style.display = 'block';
+            logoutBtn.style.display = 'none';
+            userInfo.style.display = 'none';
+            navAdmin.style.display = 'none';
+            
+            mainContent.style.display = 'block';
+            dashboard.style.display = 'none';
+            adminPanel.style.display = 'none';
+        }
+    }
 
-                packagesGrid.innerHTML = packages.map(pkg => `
-                    <div class="package-card" data-diamonds="${pkg.diamonds}" data-price="${pkg.price}">
-                        <div class="package-header">
-                            <h3>${pkg.name}</h3>
+    async loadUserData() {
+        const ordersLoading = document.getElementById('ordersLoading');
+        ordersLoading.style.display = 'block';
+
+        try {
+            const { data: orders, error } = await this.supabase
+                .from('topup_requests')
+                .select('*')
+                .eq('user_id', this.currentUser.id)
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+
+            document.getElementById('totalOrders').textContent = orders?.length || 0;
+            document.getElementById('completedOrders').textContent = orders?.filter(o => o.status === 'completed').length || 0;
+            document.getElementById('pendingOrders').textContent = orders?.filter(o => o.status === 'pending').length || 0;
+
+            const ordersList = document.getElementById('ordersList');
+            if (orders && orders.length > 0) {
+                ordersList.innerHTML = orders.map(order => `
+                    <div class="order-item">
+                        <div>
+                            <strong>${order.package_name}</strong>
+                            <div>$${order.amount} • ${new Date(order.created_at).toLocaleDateString()}</div>
                         </div>
-                        <div class="package-body">
-                            <div class="diamond-count">
-                                <i class="fas fa-gem"></i> ${pkg.diamonds}
-                            </div>
-                            <div class="price">$${pkg.price}</div>
-                            <button class="buy-btn" data-package="${pkg.diamonds} Diamonds" data-price="${pkg.price}">Buy Now</button>
-                        </div>
+                        <span class="order-status status-${order.status}">${order.status}</span>
                     </div>
                 `).join('');
+            } else {
+                ordersList.innerHTML = '<p>No orders found.</p>';
+            }
+        } catch (error) {
+            console.error('Error loading user data:', error);
+            showNotification('Error loading orders', 'error');
+        } finally {
+            ordersLoading.style.display = 'none';
+        }
+    }
 
-                // Add event listeners to buy buttons
-                document.querySelectorAll('.buy-btn').forEach(button => {
-                    button.addEventListener('click', () => {
-                        if (!configManager.isConfigured) {
-                            showNotification('Please configure Supabase first', 'error');
-                            configManager.showConfigModal();
-                            return;
-                        }
+    async loadAdminData() {
+        const adminLoading = document.getElementById('adminLoading');
+        adminLoading.style.display = 'block';
 
-                        if (!authSystem.currentUser) {
-                            showNotification('Please login to make a purchase', 'error');
-                            authModal.style.display = 'flex';
-                            return;
-                        }
+        try {
+            const { data: requests, error } = await this.supabase
+                .from('topup_requests')
+                .select(`
+                    *,
+                    profiles:user_id (email, full_name)
+                `)
+                .order('created_at', { ascending: false });
 
-                        const package = button.getAttribute('data-package');
-                        const price = button.getAttribute('data-price');
-                        
-                        document.getElementById('package').value = package;
-                        document.getElementById('price').value = `$${price}`;
-                        
-                        document.getElementById('purchaseModal').style.display = 'flex';
+            if (error) throw error;
+
+            const table = document.getElementById('requestsTable');
+            if (requests && requests.length > 0) {
+                table.innerHTML = requests.map(req => `
+                    <tr>
+                        <td>#${req.id}</td>
+                        <td>${req.profiles?.email || 'N/A'}</td>
+                        <td>${req.package_name}</td>
+                        <td>$${req.amount}</td>
+                        <td>${req.payment_method}</td>
+                        <td>${req.player_id}</td>
+                        <td><span class="order-status status-${req.status}">${req.status}</span></td>
+                        <td>
+                            <button class="action-btn btn-approve" data-id="${req.id}">Approve</button>
+                            <button class="action-btn btn-reject" data-id="${req.id}">Reject</button>
+                        </td>
+                    </tr>
+                `).join('');
+
+                document.querySelectorAll('.btn-approve').forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        await this.updateOrderStatus(e.target.dataset.id, 'completed');
                     });
                 });
+
+                document.querySelectorAll('.btn-reject').forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        await this.updateOrderStatus(e.target.dataset.id, 'failed');
+                    });
+                });
+            } else {
+                table.innerHTML = '<tr><td colspan="8" style="text-align: center;">No requests found</td></tr>';
+            }
+        } catch (error) {
+            console.error('Error loading admin data:', error);
+            showNotification('Error loading requests', 'error');
+        } finally {
+            adminLoading.style.display = 'none';
+        }
+    }
+
+    async updateOrderStatus(orderId, status) {
+        try {
+            const { error } = await this.supabase
+                .from('topup_requests')
+                .update({ 
+                    status: status,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', orderId);
+
+            if (error) throw error;
+
+            showNotification(`Order ${status} successfully`, 'success');
+            this.loadAdminData();
+        } catch (error) {
+            console.error('Error updating order:', error);
+            showNotification('Error updating order', 'error');
+        }
+    }
+}
+
+// Initialize the application
+document.addEventListener('DOMContentLoaded', function() {
+    const authSystem = new AuthSystem();
+
+    // Remove the configuration modal completely
+    const configModal = document.getElementById('configModal');
+    if (configModal) {
+        configModal.remove();
+    }
+
+    // Load packages
+    loadPackages();
+
+    // ... rest of your event listeners remain the same
+    const authModal = document.getElementById('authModal');
+    const authTabs = document.querySelectorAll('.auth-tab');
+    const loginBtn = document.getElementById('loginBtn');
+    const registerBtn = document.getElementById('registerBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const loginForm = document.getElementById('loginForm');
+    const registerForm = document.getElementById('registerForm');
+
+    // Auth tab switching
+    authTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const tabName = tab.getAttribute('data-tab');
+            
+            authTabs.forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+            
+            tab.classList.add('active');
+            document.getElementById(tabName + 'Form').classList.add('active');
+        });
+    });
+
+    // Open auth modal
+    loginBtn.addEventListener('click', () => {
+        authModal.style.display = 'flex';
+        document.querySelector('.auth-tab[data-tab="login"]').click();
+    });
+
+    registerBtn.addEventListener('click', () => {
+        authModal.style.display = 'flex';
+        document.querySelector('.auth-tab[data-tab="register"]').click();
+    });
+
+    // Close modal
+    document.querySelectorAll('.close-modal').forEach(btn => {
+        btn.addEventListener('click', () => {
+            authModal.style.display = 'none';
+        });
+    });
+
+    // Form submissions
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('loginEmail').value;
+        const password = document.getElementById('loginPassword').value;
+        
+        const result = await authSystem.login(email, password);
+        if (result.success) {
+            authModal.style.display = 'none';
+            showNotification('Login successful!', 'success');
+        } else {
+            showNotification(result.error, 'error');
+        }
+    });
+
+    registerForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const userData = {
+            name: document.getElementById('registerName').value,
+            email: document.getElementById('registerEmail').value,
+            password: document.getElementById('registerPassword').value,
+            phone: document.getElementById('registerPhone').value
+        };
+        
+        const result = await authSystem.register(userData);
+        if (result.success) {
+            authModal.style.display = 'none';
+            showNotification('Registration successful!', 'success');
+        } else {
+            showNotification(result.error, 'error');
+        }
+    });
+
+    logoutBtn.addEventListener('click', () => {
+        authSystem.logout();
+        showNotification('Logged out successfully', 'success');
+    });
+
+    // ... rest of your existing code
+});
+
+// Load packages function
+async function loadPackages() {
+    const packagesGrid = document.querySelector('.packages-grid');
+    const packages = [
+        { id: 1, name: 'Starter Pack', diamonds: 100, price: 0.99 },
+        { id: 2, name: 'Basic Pack', diamonds: 310, price: 2.99 },
+        { id: 3, name: 'Popular Pack', diamonds: 520, price: 4.99 },
+        { id: 4, name: 'Elite Pack', diamonds: 1060, price: 9.99 },
+        { id: 5, name: 'Royal Pack', diamonds: 2180, price: 19.99 },
+        { id: 6, name: 'Legendary Pack', diamonds: 5600, price: 49.99 }
+    ];
+
+    packagesGrid.innerHTML = packages.map(pkg => `
+        <div class="package-card">
+            <div class="package-header">
+                <h3>${pkg.name}</h3>
+            </div>
+            <div class="package-body">
+                <div class="diamond-count">
+                    <i class="fas fa-gem"></i> ${pkg.diamonds}
+                </div>
+                <div class="price">$${pkg.price}</div>
+                <button class="buy-btn" data-package="${pkg.diamonds} Diamonds" data-price="${pkg.price}">Buy Now</button>
+            </div>
+        </div>
+    `).join('');
+
+    // Add event listeners to buy buttons
+    document.querySelectorAll('.buy-btn').forEach(button => {
+        button.addEventListener('click', () => {
+            if (!authSystem.currentUser) {
+                showNotification('Please login to make a purchase', 'error');
+                document.getElementById('authModal').style.display = 'flex';
+                return;
             }
 
-            // Purchase modal functionality
-            const purchaseModal = document.getElementById('purchaseModal');
-            const purchaseForm = document.getElementById('purchaseForm');
-            const paymentOptions = document.querySelectorAll('.payment-option');
-            const paymentMethodInput = document.getElementById('paymentMethod');
-
-            // Payment option selection
-            paymentOptions.forEach(option => {
-                option.addEventListener('click', () => {
-                    paymentOptions.forEach(opt => opt.classList.remove('selected'));
-                    option.classList.add('selected');
-                    paymentMethodInput.value = option.getAttribute('data-method');
-                });
-            });
-
-            // Close purchase modal
-            purchaseModal.querySelector('.close-modal').addEventListener('click', () => {
-                purchaseModal.style.display = 'none';
-                paymentOptions.forEach(opt => opt.classList.remove('selected'));
-                paymentMethodInput.value = '';
-                purchaseForm.reset();
-            });
-
-            // Purchase form submission
-            purchaseForm.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                
-                if (!paymentMethodInput.value) {
-                    showNotification('Please select a payment method', 'error');
-                    return;
-                }
-
-                try {
-                    const supabase = configManager.getSupabase();
-                    const orderData = {
-                        user_id: authSystem.currentUser.id,
-                        package_name: document.getElementById('package').value,
-                        amount: document.getElementById('price').value.replace('$', ''),
-                        payment_method: paymentMethodInput.value,
-                        player_id: document.getElementById('playerIdModal').value,
-                        status: 'pending'
-                    };
-
-                    const { data, error } = await supabase
-                        .from('topup_requests')
-                        .insert([orderData])
-                        .select();
-
-                    if (error) throw error;
-
-                    // Show success message
-                    purchaseForm.style.display = 'none';
-                    document.getElementById('successMessage').style.display = 'block';
-
-                    setTimeout(() => {
-                        purchaseModal.style.display = 'none';
-                        purchaseForm.style.display = 'block';
-                        document.getElementById('successMessage').style.display = 'none';
-                        purchaseForm.reset();
-                        paymentOptions.forEach(opt => opt.classList.remove('selected'));
-                        paymentMethodInput.value = '';
-
-                        // Refresh user data
-                        authSystem.loadUserData();
-                    }, 3000);
-
-                    showNotification('Order placed successfully!', 'success');
-
-                } catch (error) {
-                    console.error('Error creating order:', error);
-                    showNotification('Error placing order', 'error');
-                }
-            });
-
-            // CTA button scrolls to packages
-            document.querySelector('.cta-button').addEventListener('click', () => {
-                document.querySelector('.packages').scrollIntoView({ behavior: 'smooth' });
-            });
+            const package = button.getAttribute('data-package');
+            const price = button.getAttribute('data-price');
+            
+            document.getElementById('package').value = package;
+            document.getElementById('price').value = `$${price}`;
+            
+            document.getElementById('purchaseModal').style.display = 'flex';
         });
+    });
+}
+
+// Notification system
+function showNotification(message, type) {
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px 20px;
+        border-radius: 4px;
+        color: white;
+        z-index: 10000;
+        font-weight: 500;
+        background-color: ${type === 'success' ? '#2ecc71' : '#e74c3c'};
+    `;
+    notification.textContent = message;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.remove();
+    }, 3000);
+}
     </script>
 </body>
 </html>
+
 
